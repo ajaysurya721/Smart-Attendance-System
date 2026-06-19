@@ -29,20 +29,6 @@ The platform architecture processes image tensors through three distinct structu
 
 ---
 
-## 📂 Project Tree Structure
-
-```text
-smart-attendance-system/
-│
-├── main_dash.py          # Central Streamlit Application Logic & Core UI
-├── attendance.csv        # Local Flat-File Attendance Database Ledger (Auto-Generated)
-├── README.md             # Repository Documentation Portfolio
-│
-└── dataset/              # Biometric Identity Template Directory
-    ├── 101_Ajay/         # Sample Normalized Registration Folders
-    │   └── img_1.jpg
-    └── 102_Anjali/
-        └── img_1.jpg
 ⚙️ Installation & Deployment Roster1. Environmental CloningBashgit clone [https://github.com/yourusername/smart-attendance-system.git](https://github.com/yourusername/smart-attendance-system.git)
 cd smart-attendance-system
 2. Dependency ResolutionDeploy the lean, required framework requirements bundle:Bashpip install streamlit opencv-python pandas numpy
