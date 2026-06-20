@@ -3,8 +3,8 @@ import cv2
 import pandas as pd
 import os
 import numpy as np
-import time
 from datetime import datetime
+from streamlit_webrtc import webrtc_streamer, VideoTransformerBase, WebRtcMode
 
 # Set page configuration for a spacious, modern corporate system layout
 st.set_page_config(page_title="AI Smart Attendance", page_icon="🛡️", layout="wide")
@@ -21,7 +21,7 @@ st.markdown("""
 
 # Top Banner Brand Block
 st.markdown('<p class="main-title">🛡️ AI Enterprise Smart Attendance Portal</p>', unsafe_allow_html=True)
-st.markdown('<p class="sub-title">Automated real-time edge facial analytics, logging pipeline, and workforce insights dashboard.</p>', unsafe_allow_html=True)
+st.markdown('<p class="sub-title">Automated real-time cloud facial analytics, logging pipeline, and workforce insights dashboard.</p>', unsafe_allow_html=True)
 
 # Initialize standard OpenCV Face Detector
 face_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_frontalface_default.xml')
@@ -36,9 +36,6 @@ def recognize_face_pure_math(live_face_gray, dataset_path="dataset"):
     min_distance = float("inf")
     
     live_face_resized = cv2.resize(live_face_gray, (50, 50)).astype("float32")
-    
-    if not os.path.exists(dataset_path):
-        return "UNKNOWN", "Unknown Face"
         
     folders = [f for f in os.listdir(dataset_path) if os.path.isdir(os.path.join(dataset_path, f))]
     for folder in folders:
@@ -76,6 +73,65 @@ def load_attendance_data():
     except PermissionError:
         fallback_df = pd.DataFrame([{"Student ID": "⚠️ LOCKED", "Student Name": "Close Excel to fix", "Timestamp": "N/A"}])
         return fallback_df, "Locked"
+
+# --- WebRTC CLOUD VIDEO STREAM WORKERS ---
+class CloudLiveAttendanceWorker(VideoTransformerBase):
+    def __init__(self):
+        self.marked_students = set()
+
+    def transform(self, frame):
+        img = frame.to_ndarray(format="bgr24")
+        gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+        faces = face_cascade.detectMultiScale(gray, 1.2, 6)
+        
+        for (x, y, w, h) in faces:
+            face_roi = gray[y:y+h, x:x+w]
+            current_id, current_name = recognize_face_pure_math(face_roi)
+            
+            if current_id != "UNKNOWN":
+                color = (16, 185, 129) # Green Accent
+                label_text = f"{current_name} ({current_id})"
+                
+                if current_id not in self.marked_students:
+                    dt_string = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                    try:
+                        df, _ = load_attendance_data()
+                        new_row = pd.DataFrame([{"Student ID": current_id, "Student Name": current_name, "Timestamp": dt_string}])
+                        df = pd.concat([df, new_row], ignore_index=True)
+                        df.to_csv("attendance.csv", index=False)
+                        self.marked_students.add(current_id)
+                    except Exception:
+                        pass
+            else:
+                color = (239, 68, 68) # Red Accent
+                label_text = "Unknown Face"
+                
+            cv2.rectangle(img, (x, y), (x + w, y + h), color, 3)
+            cv2.putText(img, label_text, (x, y - 12), cv2.FONT_HERSHEY_SIMPLEX, 0.6, color, 2)
+            
+        return img
+
+class CloudRegistrationWorker(VideoTransformerBase):
+    def __init__(self, folder_path):
+        self.folder_path = folder_path
+        self.count = 0
+
+    def transform(self, frame):
+        img = frame.to_ndarray(format="bgr24")
+        if self.count >= 5:
+            return img
+            
+        gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+        faces = face_cascade.detectMultiScale(gray, 1.3, 5)
+        
+        for (x, y, w, h) in faces:
+            if self.count < 5:
+                self.count += 1
+                face_img = gray[y:y+h, x:x+w]
+                cv2.imwrite(f"{self.folder_path}/img_{self.count}.jpg", face_img)
+                
+            cv2.rectangle(img, (x, y), (x + w, y + h), (59, 130, 246), 2)
+        return img
 
 # Data Pre-Loading for calculation layers
 df_logs, file_status = load_attendance_data()
@@ -142,116 +198,58 @@ elif choice == "🎥 Live Security Camera Feed":
     feed_left, feed_right = st.columns([2, 1])
     
     with feed_left:
-        run_system = st.toggle("Power Up Matrix Camera", value=False)
-        # Placeholder window to safely handle streaming frame loops
-        container = st.empty()
+        st.caption("Activate the WebRTC component connection stream pipeline to hook system cameras to the cloud.")
+        ctx = webrtc_streamer(
+            key="attendance-pipeline",
+            mode=WebRtcMode.SENDRECV,
+            video_transformer_factory=CloudLiveAttendanceWorker,
+            async_transform=True,
+            media_stream_constraints={"video": True, "audio": False}
+        )
     
     with feed_right:
         st.markdown("#### ⚡ Terminal Telemetry")
         st.caption("Active surveillance environment logs displaying camera validation pipelines.")
-        log_window = st.empty()
         
-    if run_system:
-        video_capture = cv2.VideoCapture(0)
-        marked_students = set()
-        telemetry_logs = []
-        
-        while run_system:
-            ret, frame = video_capture.read()
-            if not ret:
-                st.error("Unable to access system camera hardware frame buffers.")
-                break
-                
-            gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-            faces = face_cascade.detectMultiScale(gray, 1.2, 6)
-            rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-            
-            for (x, y, w, h) in faces:
-                face_roi = gray[y:y+h, x:x+w]
-                current_id, current_name = recognize_face_pure_math(face_roi)
-                
-                if current_id != "UNKNOWN":
-                    color = (16, 185, 129) 
-                    label_text = f"{current_name} ({current_id})"
-                    t_msg = f"🟢 SUCCESS: Verified {current_name}"
-                else:
-                    color = (239, 68, 68)   
-                    label_text = "Unknown Face"
-                    t_msg = f"🔴 ALERT: Unregistered individual detected"
-                
-                if not telemetry_logs or telemetry_logs[0] != t_msg:
-                    telemetry_logs.insert(0, t_msg)
-                    log_window.code("\n".join(telemetry_logs[:8]))
-                
-                if current_id != "UNKNOWN" and current_id not in marked_students:
-                    dt_string = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-                    try:
-                        df, _ = load_attendance_data()
-                        new_row = pd.DataFrame([{"Student ID": current_id, "Student Name": current_name, "Timestamp": dt_string}])
-                        df = pd.concat([df, new_row], ignore_index=True)
-                        df.to_csv("attendance.csv", index=False)
-                        marked_students.add(current_id)
-                    except PermissionError:
-                        pass
-                
-                cv2.rectangle(rgb_frame, (x, y), (x + w, y + h), color, 3)
-                cv2.putText(rgb_frame, label_text, (x, y - 12), cv2.FONT_HERSHEY_SIMPLEX, 0.6, color, 2)
-            
-            # Draw frame to placeholder cleanly
-            container.image(rgb_frame)
-            # Crucial: Yield control momentarily back to the Streamlit core process
-            time.sleep(0.05)
-            
-        video_capture.release()
-        container.empty()
-    else:
-        st.info("SURVEILLANCE STATUS: Offline. Trigger the terminal slider toggle above to establish connection link.")
+        if ctx.state.playing:
+            st.success("🟢 Video Pipeline Processing Active")
+            st.caption("Mathematical array matching matrix calculations streaming dynamically...")
+        else:
+            st.code("⚪ Streaming Offline. Connect webcam via start button.")
 
 # --- 3. REGISTER NEW PROFILE ---
 elif choice == "👤 Register New Profile":
     st.subheader("📝 Dynamic Identity Registration Array")
     col_a, col_b = st.columns(2)
+    
     with col_a:
         student_id = st.text_input("Assign Unique ID (e.g., 101, 102)")
         student_name = st.text_input("Enter Student Full Name")
         st.markdown("<br>", unsafe_allow_html=True)
-        register_btn = st.button("Initialize Biometric Scan Sequence", use_container_width=True)
+        start_registration = st.toggle("Power On Matrix Registration Camera", value=False)
         
     with col_b:
-        st.info("💡 **Enrollment Best Practices:** Ensure the user stands directly in front of the lens in a well-lit environment. The matrix camera will capture multiple rapid structural frames to calibrate the spatial grid comparison algorithm instantly.")
-        status_window = st.empty()
-        progress_bar = st.progress(0)
+        st.info("💡 **Enrollment Best Practices:** Ensure the user stands directly in front of the lens. The server catches 5 template iterations securely to map spatial data elements directly on the fly.")
         
-    if register_btn:
-        if student_id and student_name:
-            folder_path = f"dataset/{student_id.strip()}_{student_name.strip()}"
-            os.makedirs(folder_path, exist_ok=True)
-            
-            cam = cv2.VideoCapture(0)
-            count = 0
-            while count < 5:
-                ret, frame = cam.read()
-                if not ret:
-                    break
-                gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-                faces = face_cascade.detectMultiScale(gray, 1.3, 5)
+        if start_registration:
+            if student_id and student_name:
+                folder_path = f"dataset/{student_id.strip()}_{student_name.strip()}"
+                os.makedirs(folder_path, exist_ok=True)
                 
-                for (x, y, w, h) in faces:
-                    count += 1
-                    face_img = gray[y:y+h, x:x+w]
-                    cv2.imwrite(f"{folder_path}/img_{count}.jpg", face_img)
-                    
-                rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-                status_window.image(rgb_frame, channels="RGB", use_container_width=True, caption=f"Processing and saving face template matrix... [{count}/5]")
-                progress_bar.progress(count * 20)
-                time.sleep(0.3)
+                reg_ctx = webrtc_streamer(
+                    key=f"reg-stream-{student_id}",
+                    mode=WebRtcMode.SENDRECV,
+                    video_transformer_factory=lambda: CloudRegistrationWorker(folder_path),
+                    async_transform=True,
+                    media_stream_constraints={"video": True, "audio": False}
+                )
                 
-            cam.release()
-            status_window.empty()
-            st.success(f"🎉 Secure biometric profile saved successfully for {student_name}!")
-            st.rerun()
-        else:
-            st.error("Operation Denied: All biometric identity string fields are strictly required.")
+                if reg_ctx.state.playing:
+                    st.info("📸 Look directly into the camera array framework...")
+                else:
+                    st.warning("Toggle camera stream to start data registration matrix capture.")
+            else:
+                st.error("Operation Denied: All biometric identity string fields are strictly required before opening stream matrix buffers.")
 
 # --- 4.📄 DOWNLOAD SESSION REPORT ---
 elif choice == "📄 Download Session Report":
@@ -281,10 +279,10 @@ elif choice == "📄 Download Session Report":
             report_content += f"===============================================\n"
             
             st.download_button(
-                label="📥 Download Attendance Report (.pdf)",
+                label="📥 Download Attendance Report (.txt)",
                 data=report_content,
-                file_name=f"Attendance_Report_{datetime.now().strftime('%Y%m%d')}.pdf",
-                mime="application/pdf",
+                file_name=f"Attendance_Report_{datetime.now().strftime('%Y%m%d')}.txt",
+                mime="text/plain",
                 use_container_width=True
             )
         else:
